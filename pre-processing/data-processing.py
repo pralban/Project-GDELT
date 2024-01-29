@@ -8,7 +8,7 @@ from zipfile import ZipFile
 import sys
 import datetime
 
-# Initialisation de Spark
+# Initialising Spark
 conf = (SparkConf().setAppName("GDELT Project")
         .setMaster("spark://tp-hadoop-33:7077")
         .set("spark.executor.memory", "6g")
@@ -16,14 +16,14 @@ conf = (SparkConf().setAppName("GDELT Project")
 spark = SparkSession.builder.config(conf=conf).getOrCreate()
 sc = spark.sparkContext
 
-# Configuration additionnelle pour la connexion à Cassandra
+# Additional configuration for connection to Cassandra
 conf.set("spark.cassandra.connection.host", "tp-hadoop-33")
 conf.set("spark.cassandra.connection.port", "9042")
 
 spark = SparkSession.builder.config(conf=conf).getOrCreate()
 sc = spark.sparkContext
 
-# Fonction pour récupérer les URLs de fichier
+# Function to retrieve file URLs
 def get_file_urls(base_url, start_date, end_date, file_type):
     response = requests.get(base_url)
     if response.status_code != 200:
@@ -37,7 +37,7 @@ def get_file_urls(base_url, start_date, end_date, file_type):
         parts = line.split()
         if len(parts) == 3 and file_type in parts[2]:
             url = parts[2]
-            # Extraire la date et l'heure de l'URL
+            # Extracts date and time from URL
             date_part = url.split('/')[-1].split('.')[0]
             try:
                 file_date = datetime.datetime.strptime(
@@ -45,36 +45,35 @@ def get_file_urls(base_url, start_date, end_date, file_type):
                 if start_date <= file_date <= end_date:
                     file_urls.append(url)
             except ValueError:
-                continue  # Ignorer les lignes avec des formats de date incorrects
+                continue  # Ignores rows with incorrect date formats
     return file_urls
 
 def download_and_process_in_memory(url):
     response = requests.get(url)
     zipfile = ZipFile(BytesIO(response.content))
-    # Traitement des fichiers en mémoire
+    # File processing in memory
     rdd_list = []
     for filename in zipfile.namelist():
         with zipfile.open(filename) as file:
             content = file.read()
             try:
-                # Essayez d'abord avec l'encodage utf-8
                 lines = content.decode('utf-8').split('\n')
             except UnicodeDecodeError:
-                # Si une erreur se produit, utilisez un encodage différent ou ignorez les erreurs
+                # If an error occurs, use a different encoding or ignore the errors
                 lines = content.decode('iso-8859-1', errors='ignore').split('\n')
             rdd = sc.parallelize(lines)
-            # Répartition des données pour améliorer l'efficacité de la gestion de la mémoire
-            rdd = rdd.repartition(28)  # Ajustez ce nombre selon vos besoins
+            # Data distribution to improve memory management efficiency
+            rdd = rdd.repartition(28) 
             rdd_list.append(rdd)
     return rdd_list
 
-# Fonction pour convertir RDD en DataFrame
+# Function to convert RDD into DataFrame
 def rdd_to_df(rdd, schema):
     if not rdd.isEmpty():
         return spark.read.csv(rdd, schema=schema, sep="\t", header=False)
     return spark.createDataFrame([], schema)
 
-# Définition des schémas
+# Schema definition
 schema_gkg = StructType([
     StructField("GKGRECORDID", StringType(), True),
     StructField("DATE", LongType(), True),
@@ -188,26 +187,26 @@ schema_export = StructType([
     StructField("SOURCEURL", StringType(), True)
 ])
 
-# URLs de base pour les fichiers GDELT
+# Basic URLs for GDELT files
 base_urls = [
     "http://data.gdeltproject.org/gdeltv2/masterfilelist.txt",
     "http://data.gdeltproject.org/gdeltv2/masterfilelist-translation.txt"
 ]
 
-# Vérifiez si les dates de début et de fin sont fournies
+# Check that start and end dates are provided
 if len(sys.argv) != 3:
     print("Usage: script.py <start_datetime> <end_datetime>")
     sys.exit(-1)
 
-# Lire les dates de début et de fin à partir des arguments du script
-# Les arguments sont attendus sous la forme "YYYY-MM-DD HH:MM:SS"
+# Read the start and end dates from the script arguments
+# Arguments in the format "YYYY-MM-DD HH:MM:SS".
 start_datetime_str, end_datetime_str = sys.argv[1], sys.argv[2]
 
-# Conversion des chaînes en objets datetime
+# Convert strings into datetime objects
 start_date = datetime.datetime.strptime(start_datetime_str, '%Y-%m-%d %H:%M:%S')
 end_date = datetime.datetime.strptime(end_datetime_str, '%Y-%m-%d %H:%M:%S')
 
-# Récupération des URLs
+# URL recovery
 file_urls = []
 for base_url in base_urls:
     file_urls.extend(get_file_urls(
@@ -217,7 +216,7 @@ for base_url in base_urls:
     file_urls.extend(get_file_urls(
         base_url, start_date, end_date, 'gkg.csv.zip'))
 
-# Traitement des données en mémoire
+# Data Processing in memory
 rdd_export, rdd_mentions, rdd_gkg = sc.emptyRDD(), sc.emptyRDD(), sc.emptyRDD()
 for url in file_urls:
     rdd_list = download_and_process_in_memory(url)
@@ -229,7 +228,7 @@ for url in file_urls:
         elif 'gkg.csv' in url:
             rdd_gkg = rdd_gkg.union(rdd)
 
-# Chargement des données dans des DataFrames et affichage
+# Load data into DataFrames and display them
 df_export = rdd_to_df(rdd_export, schema_export)
 df_mentions = rdd_to_df(rdd_mentions, schema_mentions)
 df_mentions_export = df_export.join(df_mentions, "GlobalEventID", "inner")
